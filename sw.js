@@ -1,6 +1,7 @@
 /* Cauce: guarda la app en el celular para que abra sin internet. Tus datos viven en el navegador del dispositivo. */
-const V = 'cauce-29845d70';
-const SDK = ['app', 'auth', 'firestore'].map(n => 'https://www.gstatic.com/firebasejs/10.14.1/firebase-' + n + '-compat.js');
+const V = 'cauce-7f3f6459';
+const SRI = { 'app': 'sha384-ZaR6mWzmJtrRibZ1Vm7SoHFr8OXjyAuGAXalGDKqbxFT18oi/z+oZLIRFkpeNor1', 'auth': 'sha384-I1LYojsZ5RM1cOda44Z2h42Qa6YfsQ1XkXxREnhp4ueYBR/4d1pG1K+NZM537Vsj', 'firestore': 'sha384-Ke0FJhH7LyRqDxZ0wt+/OXV38yfQVu7g9VPEEGjYmB4RVOY/ta04uecRhsMwT7V3' };
+const SDK = Object.keys(SRI).map(n => ['https://www.gstatic.com/firebasejs/10.14.1/firebase-' + n + '-compat.js', SRI[n]]);
 const CORE = ['./', 'index.html', 'manifest.webmanifest', 'firebase-config.js', 'cauce-firebase.js', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 const ASSET_HOSTS = ['www.gstatic.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 
@@ -8,7 +9,7 @@ self.addEventListener('install', e => {
   e.waitUntil((async () => {
     const c = await caches.open(V);
     await Promise.all(CORE.map(u => c.add(new Request(u, { cache: 'reload' })).catch(() => {})));
-    await Promise.all(SDK.map(u => c.add(new Request(u, { mode: 'cors', credentials: 'omit' })).catch(() => {})));
+    await Promise.all(SDK.map(x => c.add(new Request(x[0], { mode: 'cors', credentials: 'omit', integrity: x[1] })).catch(() => {})));
     await self.skipWaiting();
   })());
 });

@@ -1,8 +1,12 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Cada persona lee y escribe solo lo suyo: users/<su id>/...
-    match /users/{uid}/{document=**} {
+    // Cada persona lee y escribe solo lo suyo: users/<su id>/cauce y users/<su id>/cauce-fotos.
+    // Todo lo demás queda cerrado.
+    match /users/{uid}/cauce/{docId} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    match /users/{uid}/cauce-fotos/{docId} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
   }

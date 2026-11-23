@@ -7,12 +7,19 @@
   if (!cfg || !cfg.apiKey || !cfg.projectId || window.claude) return;
 
   var VER = '10.14.1', BASE = 'https://www.gstatic.com/firebasejs/' + VER + '/firebase-';
+  // Huella de cada librería: si alguien cambiara el archivo en el camino, el navegador se niega a ejecutarlo y Cauce sigue funcionando solo en el dispositivo.
+  var SRI = {
+    'app-compat.js': 'sha384-ZaR6mWzmJtrRibZ1Vm7SoHFr8OXjyAuGAXalGDKqbxFT18oi/z+oZLIRFkpeNor1',
+    'auth-compat.js': 'sha384-I1LYojsZ5RM1cOda44Z2h42Qa6YfsQ1XkXxREnhp4ueYBR/4d1pG1K+NZM537Vsj',
+    'firestore-compat.js': 'sha384-Ke0FJhH7LyRqDxZ0wt+/OXV38yfQVu7g9VPEEGjYmB4RVOY/ta04uecRhsMwT7V3'
+  };
   var auth = null, fs = null, user = null, state = 'loading', listeners = [], first = true, initP = null;
 
-  function load(src) {
+  function load(name) {
+    var src = BASE + name;
     return new Promise(function (ok, no) {
       var s = document.createElement('script'), t = setTimeout(function () { s.remove(); no(new Error('timeout')); }, 15000);
-      s.src = src; s.async = true;
+      s.src = src; s.async = true; s.integrity = SRI[name]; s.crossOrigin = 'anonymous';
       s.onload = function () { clearTimeout(t); ok(); };
       s.onerror = function () { clearTimeout(t); s.remove(); no(new Error('load')); };
       document.head.appendChild(s);
@@ -27,10 +34,11 @@
     state = 'loading';
     initP = (async function () {
       try {
-        if (!window.firebase) { await load(BASE + 'app-compat.js'); await Promise.all([load(BASE + 'auth-compat.js'), load(BASE + 'firestore-compat.js')]); }
+        if (!window.firebase) { await load('app-compat.js'); await Promise.all([load('auth-compat.js'), load('firestore-compat.js')]); }
         var fb = window.firebase;
         if (!fb.apps.length) fb.initializeApp(cfg);
         auth = fb.auth(); fs = fb.firestore();
+        try { if (auth.useDeviceLanguage) auth.useDeviceLanguage(); } catch (e) { /* los correos salen en el idioma del teléfono; si no se puede, en el de Firebase */ }
         try { fs.settings({ ignoreUndefinedProperties: true }); } catch (e) { /* ya estaba en uso */ }
         if (first) {
           await new Promise(function (res) {
@@ -104,14 +112,43 @@
     }
   };
 
+  // Borra todos los documentos de una colección del usuario, de a lotes (Firestore permite hasta 500 por lote).
+  function wipeCol(path) {
+    return fs.collection(path).get().then(function (q) {
+      var docs = q.docs.slice(), jobs = [];
+      for (var i = 0; i < docs.length; i += 400) {
+        var b = fs.batch(); docs.slice(i, i + 400).forEach(function (d) { b.delete(d.ref); }); jobs.push(b.commit());
+      }
+      return Promise.all(jobs);
+    });
+  }
+  // Por seguridad, cambiar la contraseña y borrar la cuenta piden la contraseña actual otra vez.
+  function reauth(pw) {
+    var u = cu(); if (!u) { var e = new Error('sin sesión'); e.code = 'auth/requires-recent-login'; return Promise.reject(e); }
+    return u.reauthenticateWithCredential(window.firebase.auth.EmailAuthProvider.credential(u.email, pw)).then(function () { return u; });
+  }
+  function pub() { var u = cu(); return u ? { uid: u.uid, email: u.email || '', verified: !!u.emailVerified } : null; }
+
   window.CauceAuth = {
     ready: function () { return init(); },
     state: function () { return state; },
-    user: function () { var u = cu(); return u ? { uid: u.uid, email: u.email || '' } : null; },
+    user: pub,
     signIn: function (email, pw) { return need().then(function () { return auth.signInWithEmailAndPassword(email, pw); }).then(function () { return true; }); },
-    signUp: function (email, pw) { return need().then(function () { return auth.createUserWithEmailAndPassword(email, pw); }).then(function () { return true; }); },
+    signUp: function (email, pw) {
+      return need().then(function () { return auth.createUserWithEmailAndPassword(email, pw); })
+        .then(function (c) { try { var r = c && c.user && c.user.sendEmailVerification(); if (r && r.catch) r.catch(function () { /* el correo de verificación es un extra: si falla, la cuenta igual queda creada */ }); } catch (e) { /* idem */ } return true; });
+    },
     signOut: function () { return need().then(function () { return auth.signOut(); }).then(function () { return true; }); },
     reset: function (email) { return need().then(function () { return auth.sendPasswordResetEmail(email); }).then(function () { return true; }); },
+    resendVerification: function () { return need().then(function () { var u = cu(); if (!u) throw new Error('sin sesión'); return u.sendEmailVerification(); }).then(function () { return true; }); },
+    refresh: function () { return need().then(function () { var u = cu(); return u ? u.reload() : null; }).then(pub); },
+    changePassword: function (oldPw, newPw) { return need().then(function () { return reauth(oldPw); }).then(function (u) { return u.updatePassword(newPw); }).then(function () { return true; }); },
+    // Primero se borran los datos (mientras la sesión sirve), después la cuenta. Si algo falla antes de borrar la cuenta, se puede reintentar.
+    deleteAccount: function (pw) {
+      return need().then(function () { return reauth(pw); }).then(function (u) {
+        return Promise.all([wipeCol('users/' + u.uid + '/cauce'), wipeCol('users/' + u.uid + '/cauce-fotos')]).then(function () { return u.delete(); });
+      }).then(function () { return true; });
+    },
     onChange: function (fn) { listeners.push(fn); }
   };
   init();
