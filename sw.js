@@ -1,12 +1,14 @@
 /* Cauce: guarda la app en el celular para que abra sin internet. Tus datos viven en el navegador del dispositivo. */
-const V = 'cauce-92634836';
-const CORE = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
-const ASSET_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
+const V = 'cauce-29845d70';
+const SDK = ['app', 'auth', 'firestore'].map(n => 'https://www.gstatic.com/firebasejs/10.14.1/firebase-' + n + '-compat.js');
+const CORE = ['./', 'index.html', 'manifest.webmanifest', 'firebase-config.js', 'cauce-firebase.js', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
+const ASSET_HOSTS = ['www.gstatic.com', 'fonts.googleapis.com', 'fonts.gstatic.com'];
 
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
     const c = await caches.open(V);
     await Promise.all(CORE.map(u => c.add(new Request(u, { cache: 'reload' })).catch(() => {})));
+    await Promise.all(SDK.map(u => c.add(new Request(u, { mode: 'cors', credentials: 'omit' })).catch(() => {})));
     await self.skipWaiting();
   })());
 });
